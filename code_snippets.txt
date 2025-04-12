@@ -1,0 +1,437 @@
+<initial_libraries>
+<!-- 
+    
+import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+
+pd.set_option('display.float_format', lambda x: '{:.2f}'.format(x))
+np.set_printoptions(suppress=True) 
+
+-->
+
+</initial_libraries>
+
+<columns_adjustments>
+df.columns = df.columns.str.replace(" ","_").str.lower()
+</columns_adjustments>
+
+<merging_of_df>
+<!-- 
+
+df = pd.merge(df_1, df_2, on='common column')
+df.head(3) 
+
+-->
+</merging_of_df>
+
+<test_and_train_df>
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/2112
+#To avoid data leakage
+<!-- 
+
+X = df.drop("target", axis="columns")
+y = df['target']
+
+X_train,X_test,y_train,y_test=train_test_split(X,y,stratify=y,test_size=0.25,random_state=42)
+
+df_train = pd.concat([X_train, y_train], axis="columns")
+df_test = pd.concat([X_test, y_test], axis="columns")
+
+df_train.head(2)
+
+-->
+</test_and_train_df>
+
+<see_na_values>
+<!-- 
+
+df_train.isna().sum()
+ 
+-->
+</see_na_values>
+
+<handle_duplicated_values>
+<!-- 
+
+df.drop_duplicates(inplace=True)
+df.duplicated().sum()
+
+-->
+</handle_duplicated_values>
+
+<vif_calculation_function>
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/2000
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/2001
+
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+def calculate_vif(data):
+    vif_df = pd.DataFrame()
+    vif_df['Column'] = data.columns
+    vif_df['VIF'] = [variance_inflation_factor(data.values,i) for i in range(data.shape[1])]
+    return vif_df
+</vif_calculation_function>
+
+<calculating_iv>
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/2116
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/2117
+
+#only for credit analysis
+
+def calculate_woe_iv(df, feature, target):
+    grouped = df.groupby(feature)[target].agg(['count','sum'])
+    grouped = grouped.rename(columns={'count': 'total', 'sum': 'good'})
+    grouped['bad']=grouped['total']-grouped['good']
+
+    total_good = grouped['good'].sum()
+    total_bad = grouped['bad'].sum()
+
+    grouped['good_pct'] = grouped['good'] / total_good
+    grouped['bad_pct'] = grouped['bad'] / total_bad
+    grouped['woe'] = np.log(grouped['good_pct']/ grouped['bad_pct'])
+    grouped['iv'] = (grouped['good_pct'] -grouped['bad_pct'])*grouped['woe']
+
+    grouped['woe'] = grouped['woe'].replace([np.inf, -np.inf], 0)
+    grouped['iv'] = grouped['iv'].replace([np.inf, -np.inf], 0)
+
+    total_iv = grouped['iv'].sum()
+
+    return grouped, total_iv
+
+iv_values = {}
+
+for feature in X_train_1.columns:
+    if X_train_1[feature].dtype == 'object':
+        _, iv = calculate_woe_iv(pd.concat([X_train_1, y_train],axis=1), feature, 'default' )
+    else:
+        X_binned = pd.cut(X_train_1[feature], bins=10, labels=False)
+        _, iv = calculate_woe_iv(pd.concat([X_binned, y_train],axis=1), feature, 'default' )
+    iv_values[feature] = iv
+        
+iv_values
+
+------------
+pd.set_option('display.float_format', lambda x: '{:.3f}'.format(x))
+
+iv_df = pd.DataFrame(list(iv_values.items()), columns=['Feature', 'IV'])
+iv_df = iv_df.sort_values(by='IV', ascending=False)
+iv_df
+
+-------------
+
+# select features that has IV > 0.02
+selected_features_iv = [feature for feature, iv in iv_values.items() if iv > 0.02]
+selected_features_iv
+</calculating_iv>
+
+<one_hot_encoding>
+X_train_encoded = pd.get_dummies(X_train_reduced, drop_first=True, dtype='int')
+</one_hot_encoding>
+
+<logistic_regression>
+#No handling of class imbalance
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report
+
+model = LogisticRegression()
+model.fit(X_train_encoded, y_train)
+
+y_pred = model.predict(X_test_encoded)
+report = classification_report(y_test, y_pred)
+print(report)
+
+--------------
+feature_importance = model.coef_[0]
+
+# Create a DataFrame for easier handling
+coef_df = pd.DataFrame(feature_importance, index=X_train_encoded.columns, columns=['Coefficients'])
+
+# Sort the coefficients for better visualization
+coef_df = coef_df.sort_values(by='Coefficients', ascending=True)
+
+# Plotting
+plt.figure(figsize=(8, 4))
+plt.barh(coef_df.index, coef_df['Coefficients'], color='steelblue')
+plt.xlabel('Coefficient Value')
+plt.title('Feature Importance in Logistic Regression')
+plt.show()
+
+--------------
+from sklearn.model_selection import RandomizedSearchCV
+
+param_dist = {
+    'C': np.logspace(-4, 4, 20),  # Logarithmically spaced values from 10^-4 to 10^4
+    'solver': ['lbfgs', 'saga', 'liblinear', 'newton-cg']   # Algorithm to use in the optimization problem
+}
+
+# Create the Logistic Regression model
+log_reg = LogisticRegression(max_iter=10000)  # Increased max_iter for convergence
+
+# Set up RandomizedSearchCV
+random_search = RandomizedSearchCV(
+    estimator=log_reg,
+    param_distributions=param_dist,
+    n_iter=50,  # Number of parameter settings that are sampled
+    scoring='f1',
+    cv=3,  # 5-fold cross-validation
+    verbose=2,
+    random_state=42,  # Set a random state for reproducibility
+    n_jobs=-1  # Use all available cores
+)
+
+# Fit the RandomizedSearchCV to the training data
+random_search.fit(X_train_encoded, y_train)
+
+# Print the best parameters and best score
+print(f"Best Parameters: {random_search.best_params_}")
+print(f"Best Score: {random_search.best_score_}")
+
+best_model = random_search.best_estimator_
+y_pred = best_model.predict(X_test_encoded)
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+</logistic_regression>
+
+<random_forest_regressor>
+from sklearn.ensemble import RandomForestClassifier
+
+model = RandomForestClassifier()
+model.fit(X_train_encoded, y_train)
+
+y_pred = model.predict(X_test_encoded)
+report = classification_report(y_test, y_pred)
+print(report)
+
+</random_forest_regressor>
+
+<xgbclassifier>
+from xgboost import XGBClassifier
+
+model = XGBClassifier()
+model.fit(X_train_encoded, y_train)
+
+y_pred = model.predict(X_test_encoded)
+report = classification_report(y_test, y_pred)
+print(report)
+
+--------------
+from scipy.stats import uniform, randint
+from sklearn.model_selection import RandomizedSearchCV
+
+# Define parameter distribution for RandomizedSearchCV
+param_dist = {
+    'n_estimators': [100, 150, 200, 250, 300],
+    'max_depth': [3, 4, 5, 6, 7, 8, 9, 10],
+    'learning_rate': [0.01, 0.03, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3],
+    'subsample': [0.6, 0.7, 0.8, 0.9, 1.0],
+    'colsample_bytree': [0.6, 0.7, 0.8, 0.9, 1.0],
+    'scale_pos_weight': [1, 2, 3, 5, 7, 10],
+    'reg_alpha': [0.01, 0.1, 0.5, 1.0, 5.0, 10.0],  # L1 regularization term
+    'reg_lambda': [0.01, 0.1, 0.5, 1.0, 5.0, 10.0]  # L2 regularization term
+}
+
+xgb = XGBClassifier()
+
+random_search = RandomizedSearchCV(estimator=xgb, param_distributions=param_dist, n_iter=100,
+                                   scoring='f1', cv=3, verbose=1, n_jobs=-1, random_state=42)
+
+random_search.fit(X_train_encoded, y_train)
+
+# Print the best parameters and best score
+print(f"Best Parameters: {random_search.best_params_}")
+print(f"Best Score: {random_search.best_score_}")
+
+best_model = random_search.best_estimator_
+y_pred = best_model.predict(X_test_encoded)
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+--------------
+feature_importance = best_model.feature_importances_
+
+# Create a DataFrame for easier handling
+coef_df = pd.DataFrame(feature_importance, index=X_train.columns, columns=['Coefficients'])
+
+# Sort the coefficients for better visualization
+coef_df = coef_df.sort_values(by='Coefficients', ascending=True)
+
+# Plotting
+plt.figure(figsize=(8, 4))
+plt.barh(coef_df.index, coef_df['Coefficients'], color='steelblue')
+plt.xlabel('Coefficient Value')
+plt.title('Feature Importance in XGBoost')
+plt.show()
+</xgbclassifier>
+
+<desired_recall>
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/1977
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/1978
+
+
+probabilities = model.predict_proba(X_test)[:,1]
+
+from sklearn.metrics import roc_curve
+
+fpr, tpr, thresholds = roc_curve(y_test, probabilities)
+
+fpr[:5], tpr[:5], thresholds[:5]
+
+--------------
+desired_recall = 90 # Replace with your desired recall value
+
+closest_index = np.argmin(abs(tpr-desired_recall))
+tpr[closest_index], thresholds[closest_index], fpr[closest_index]
+
+optimal_thresh = thresholds[closest_index]
+
+--------------
+y_pred = (probabilities > optimal_thresh).astype(int)
+
+report = classification_report(y_test, y_pred)
+print(report)
+</desired_recall>
+
+<desired_precision>
+from sklearn.metrics import precision_recall_curve
+# Calculate Precision-Recall curve
+precisions, recalls, thresholds = precision_recall_curve(y_test, probabilities)
+
+print("First 5 values of Precisions, Recalls, and Thresholds:")
+print("Precisions:", precisions[:5])
+print("Recalls:", recalls[:5])
+print("Thresholds:", thresholds[:5])
+print("-" * 20)
+
+# Define your desired precision value
+desired_precision = 0.90  # Replace with your desired precision value
+
+# Find the index of the threshold that achieves or exceeds the desired precision
+optimal_thresh = None
+achieved_precision = None
+closest_index = None
+
+for i, p in enumerate(precisions):
+    if p >= desired_precision:
+        optimal_thresh = thresholds[i]
+        achieved_precision = p
+        closest_index = i
+        break  # Stop at the first threshold that meets or exceeds the requirement
+
+if optimal_thresh is not None:
+    achieved_recall = recalls[closest_index]
+    corresponding_threshold = thresholds[closest_index]
+
+    print(f"Desired Precision: {desired_precision:.2f}")
+    print(f"Achieved Precision (at or above desired): {achieved_precision:.4f}")
+    print(f"Corresponding Recall: {achieved_recall:.4f}")
+    print(f"Optimal Threshold for this Precision: {corresponding_threshold:.4f}")
+    print("-" * 20)
+
+    # Make predictions using the optimal threshold
+    y_pred = (probabilities >= optimal_thresh).astype(int)
+
+    # Generate and print the classification report
+    report = classification_report(y_test, y_pred)
+    print("Classification Report at the optimal threshold:")
+    print(report)
+
+else:
+    print(f"Could not achieve a precision of {desired_precision*100:.2f}% with the current model.")
+    print(f"Maximum achievable precision: {np.max(precisions):.4f}")
+</desired_precision>
+
+<handle_class_imbalance_under_sampling>
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/2126
+
+from imblearn.under_sampling import RandomUnderSampler
+
+rus = RandomUnderSampler(random_state=42)
+X_train_res, y_train_res = rus.fit_resample(X_train_encoded, y_train)
+y_train_res.value_counts()
+</handle_class_imbalance_under_sampling>
+
+<handle_class_imbalance_over_sampling>
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/2126
+https://codebasics.io/courses/machine-learning-for-data-science-beginners-to-advanced/lecture/2127
+
+
+from imblearn.combine import SMOTETomek
+
+smt = SMOTETomek(random_state=42)
+X_train_smt, y_train_smt = smt.fit_resample(X_train_encoded, y_train)
+y_train_smt.value_counts()
+</handle_class_imbalance_over_sampling>
+
+<xbgregressor>
+model_xgb = XGBRegressor()
+param_grid = {
+    'n_estimators': [20, 40, 50],
+    'learning_rate': [0.01, 0.1, 0.2],
+    'max_depth': [3, 4, 5],
+}
+random_search = RandomizedSearchCV(model_xgb, param_grid, n_iter=10, cv=3, scoring='r2', random_state=42, n_jobs=-1)
+random_search.fit(X_train, y_train)
+random_search.best_score_
+
+--------------
+random_search.best_params_
+
+--------------
+best_model = random_search.best_estimator_
+
+--------------
+feature_importance = best_model.feature_importances_
+
+# Create a DataFrame for easier handling
+coef_df = pd.DataFrame(feature_importance, index=X_train.columns, columns=['Coefficients'])
+
+# Sort the coefficients for better visualization
+coef_df = coef_df.sort_values(by='Coefficients', ascending=True)
+
+# Plotting
+plt.figure(figsize=(8, 4))
+plt.barh(coef_df.index, coef_df['Coefficients'], color='steelblue')
+plt.xlabel('Coefficient Value')
+plt.title('Feature Importance in XGBoost')
+plt.show()
+</xbgregressor>
+
+<linear_regression>
+model_lr = LinearRegression()
+model_lr.fit(X_train, y_train)
+test_score = model_lr.score(X_test, y_test)
+train_score = model_lr.score(X_train, y_train)
+train_score, test_score
+
+--------------
+y_pred = model_lr.predict(X_test)
+
+mse_lr = mean_squared_error(y_test, y_pred)
+rmse_lr = np.sqrt(mse_lr)
+print("Linear Regression ==> MSE: ", mse_lr, "RMSE: ", rmse_lr)
+
+--------------
+feature_importance = model_lr.coef_
+
+# Create a DataFrame for easier handling
+coef_df = pd.DataFrame(feature_importance, index=X_train.columns, columns=['Coefficients'])
+
+# Sort the coefficients for better visualization
+coef_df = coef_df.sort_values(by='Coefficients', ascending=True)
+
+# Plotting
+plt.figure(figsize=(8, 4))
+plt.barh(coef_df.index, coef_df['Coefficients'], color='steelblue')
+plt.xlabel('Coefficient Value')
+plt.title('Feature Importance in Linear Regression')
+plt.show()
+</linear_regression>
+
+
+
+
+
